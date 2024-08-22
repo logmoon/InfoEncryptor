@@ -28,18 +28,35 @@ class EncryptionManager:
         decrypted_data = self.decrypt_data_with_master_key(encrypted_data)
         return json.loads(decrypted_data.decode())
 
-    def save_key(self, label, key):
-        self.keys[label] = key.decode()
+    def save_key(self, label, key, folder_path):
+        self.keys[label] = {
+            "key": key.decode(),
+            "path": folder_path
+        }
         encrypted_data = self.encrypt_data_with_master_key(json.dumps(self.keys).encode())
         with open(self.key_store_path, 'wb') as f:
             f.write(encrypted_data)
 
     def get_key(self, label):
-        if label not in self.keys:
+        if label in self.keys:
+            return self.keys[label]["key"].encode()
+        else:
             new_key = Fernet.generate_key()
-            self.save_key(label, new_key)
+            self.save_key(label, new_key, "")  # Save the new key with an empty folder path initially
             return new_key
-        return self.keys[label].encode()
+
+    def update_folder_path(self, label, new_path):
+        if label in self.keys:
+            self.keys[label]["path"] = new_path
+            self.save_keys()
+
+    def save_keys(self):
+        encrypted_data = self.encrypt_data_with_master_key(json.dumps(self.keys).encode())
+        with open(self.key_store_path, 'wb') as f:
+            f.write(encrypted_data)
+
+    def get_all_encrypted_folders(self):
+        return [(label, self.keys[label]["path"]) for label in self.keys]
 
     def generate_uuid(self):
         return str(uuid.uuid4())
@@ -69,6 +86,8 @@ class EncryptionManager:
 
         with open(output_file, 'wb') as file:
             file.write(encrypted_data)
+
+        self.save_key(file_uuid, key, output_file)
 
     def decrypt_file(self, encrypted_file: str, output_file: str):
         with open(encrypted_file, 'rb') as file:
