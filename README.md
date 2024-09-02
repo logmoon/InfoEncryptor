@@ -6,7 +6,7 @@
 
 ## Features
 
-- **Account Management**: Create and log into individual user accounts.
+- **Account Management**: The app allows for different users, you can create accounts, log into them, and encrypt data, the only way someone can access your data is if they know your password. Users and their data are stored locally inside a folder called `user_data` located in the root path of the application.
   
 - **Folder Encryption & Decryption**: 
   - Encrypt folders securely.
