@@ -10,7 +10,7 @@ class EncryptionManager:
         self.master_key = master_key
         self.keys = self.load_keys()
         self.ENCRYPTED_FILE_EXTENSION = " (ENCRYPTED).enc"
-        self.DECRYPTED_FOLDER_EXTENSION = " (DECRYPTED)"
+        self.DECRYPTED_FOLDER_EXTENSION = ""
 
     def encrypt_data_with_master_key(self, data: bytes) -> bytes:
         fernet = Fernet(self.master_key)

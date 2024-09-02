@@ -69,10 +69,10 @@ class GUIManager:
     def show_main_interface(self):
         # Display the logged-in user at the top
         if self.user_label is None:
-            self.user_label = ttk.Label(self.root, text=f"Logged in as: {self.account_manager.current_user}", foreground="green", font=("Helvetica", 10))
+            self.user_label = ttk.Label(self.root, text=f"Logged in as: {self.account_manager.current_user.title()}", foreground="green", font=("Helvetica", 10))
             self.user_label.grid(row = 0, column=0, padx=10, pady=10)
         else:
-            self.user_label.config(text=f"Logged in as: {self.account_manager.current_user}")
+            self.user_label.config(text=f"Logged in as: {self.account_manager.current_user.title()}")
         
         self.notebook = ttk.Notebook(self.root)
         self.notebook.grid(row=1, column=0, sticky="nsew", padx=10)
@@ -90,6 +90,7 @@ class GUIManager:
         self.notebook.add(encrypt_decrypt_frame, text="Encrypt & Decrypt")
 
         ttk.Button(encrypt_decrypt_frame, text="Encrypt New Folder", command=lambda: self.run_in_background(self.encrypt_action), width=40).pack(pady=10)
+        ttk.Button(encrypt_decrypt_frame, text="Refresh", command=lambda: self.run_in_background(self.update_folder_display), width=40).pack(pady=10)
 
         self.canvas = tk.Canvas(encrypt_decrypt_frame)
         self.canvas.pack(side="left", fill="both", expand=True, pady=10)
