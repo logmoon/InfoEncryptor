@@ -6,21 +6,28 @@ import threading
 import time
 import base64
 import uuid
+import hashlib
+import datetime
 
 class CloudStorageManager:
-    def __init__(self, config_path: str):
-        """Initialize Supabase with project credentials"""
-        with open(config_path, 'r') as f:
+    def __init__(self, config_path: str, encryption_manager=None):
+        """Initialize cloud storage manager"""
+        # Load config
+        with open(config_path) as f:
             config = json.load(f)
-            self.supabase_url = config.get('supabase_url')
-            self.supabase_key = config.get('supabase_key')
-            self.client = self.create_client()
+            
+        # Initialize client
+        self.client = create_client(
+            config['supabase_url'],
+            config['supabase_key']
+        )
         
         self._current_user = None
+        self.encryption_manager = encryption_manager
 
     def create_client(self) -> Client:
         """Create a fresh Supabase client"""
-        return create_client(self.supabase_url, self.supabase_key)
+        return create_client(self.client.url, self.client.key)
 
     def signup(self, email: str, password: str) -> Tuple[bool, str]:
         """Sign up a new user"""
@@ -148,3 +155,208 @@ class CloudStorageManager:
             return files, ""
         except Exception as e:
             return [], str(e)
+
+    def get_encryption_key(self) -> Optional[bytes]:
+        """Get the encryption key for the current user"""
+        if not self._current_user:
+            return None
+            
+        try:
+            result = self.client.table('user_keys')\
+                .select('key_data')\
+                .eq('user_id', self._current_user.id)\
+                .limit(1)\
+                .execute()
+                
+            if result.data:
+                # Decode base64 key
+                return base64.b64decode(result.data[0]['key_data'])
+            return None
+        except Exception as e:
+            print(f"Error getting key: {str(e)}")
+            return None
+            
+    def store_encryption_key(self, key_data: bytes) -> bool:
+        """Store the encryption key for the current user"""
+        if not self._current_user:
+            return False
+            
+        try:
+            # Convert key to base64 for storage
+            encoded_key = base64.b64encode(key_data).decode('utf-8')
+            
+            data = {
+                'user_id': self._current_user.id,
+                'key_data': encoded_key
+            }
+            
+            self.client.table('user_keys').upsert(data).execute()
+            return True
+        except Exception as e:
+            print(f"Error storing key: {str(e)}")
+            return False
+
+    def store_login_info(self, email: str, password: str) -> bool:
+        """Store login information for the current user"""
+        if not self._current_user:
+            return False
+            
+        try:
+            # Hash password before storing
+            password_hash = base64.b64encode(
+                hashlib.sha256(password.encode()).digest()
+            ).decode('utf-8')
+            
+            data = {
+                'user_id': self._current_user.id,
+                'email': email,
+                'password_hash': password_hash,
+                'last_login': datetime.datetime.utcnow().isoformat()
+            }
+            
+            self.client.table('user_logins').upsert(data).execute()
+            return True
+        except Exception as e:
+            print(f"Error storing login info: {str(e)}")
+            return False
+            
+    def get_stored_logins(self) -> List[Dict]:
+        """Get all stored login information"""
+        try:
+            result = self.client.table('user_logins')\
+                .select('email,last_login')\
+                .order('last_login', desc=True)\
+                .execute()
+                
+            return result.data if result.data else []
+        except Exception as e:
+            print(f"Error getting logins: {str(e)}")
+            return []
+            
+    def get_login_info(self, email: str) -> Optional[Dict]:
+        """Get login information for a specific email"""
+        try:
+            result = self.client.table('user_logins')\
+                .select('email,password_hash')\
+                .eq('email', email)\
+                .limit(1)\
+                .execute()
+                
+            return result.data[0] if result.data else None
+        except Exception as e:
+            print(f"Error getting login info: {str(e)}")
+            return None
+            
+    def verify_password(self, stored_hash: str, password: str) -> bool:
+        """Verify if a password matches the stored hash"""
+        password_hash = base64.b64encode(
+            hashlib.sha256(password.encode()).digest()
+        ).decode('utf-8')
+        return password_hash == stored_hash
+
+    def upload_encrypted_data(self, filename: str, data: bytes) -> Tuple[bool, str]:
+        """Upload encrypted data to cloud storage"""
+        if not self._current_user:
+            return False, "Not logged in"
+            
+        try:
+            # Create metadata
+            metadata = {
+                'user_id': self._current_user.id,
+                'filename': filename,
+                'size': len(data),
+                'last_modified': datetime.datetime.utcnow().isoformat()
+            }
+            
+            # Upload data
+            result = self.client.storage\
+                .from_('encrypted_data')\
+                .upload(
+                    f"{self._current_user.id}/{filename}",
+                    data,
+                    {'upsert': True}
+                )
+                
+            if result.error:
+                return False, str(result.error)
+                
+            # Update metadata
+            self.client.table('files')\
+                .upsert(metadata)\
+                .execute()
+                
+            return True, ""
+        except Exception as e:
+            return False, str(e)
+            
+    def get_login_entries(self) -> List[Dict]:
+        """Get login entries from encrypted file"""
+        if not self._current_user or not self.encryption_manager:
+            return []
+            
+        try:
+            # Check if login entries file exists
+            result = self.client.table('encrypted_files')\
+                .select('encrypted_data')\
+                .eq('user_id', self._current_user.id)\
+                .eq('file_id', 'login_entries')\
+                .limit(1)\
+                .execute()
+                
+            if not result.data:
+                # Create empty login entries file
+                empty_entries = []
+                data = json.dumps(empty_entries).encode()
+                encrypted_data = self.encryption_manager.encrypt_data(data)
+                encoded_data = base64.b64encode(encrypted_data).decode()
+                
+                # Save to database
+                self.client.table('encrypted_files').upsert({
+                    'user_id': self._current_user.id,
+                    'file_id': 'login_entries',
+                    'encrypted_data': encoded_data,
+                    'size': len(encrypted_data)
+                }).execute()
+                
+                return empty_entries
+                
+            # Decrypt and parse data
+            encrypted_data = base64.b64decode(result.data[0]['encrypted_data'])
+            decrypted_data = self.encryption_manager.decrypt_data(encrypted_data)
+            return json.loads(decrypted_data.decode())
+            
+        except Exception as e:
+            print(f"Error getting login entries: {str(e)}")
+            return []
+            
+    def save_login_entries(self, entries: List[Dict]) -> bool:
+        """Save login entries to encrypted file"""
+        if not self._current_user or not self.encryption_manager:
+            return False
+            
+        try:
+            # Encrypt entries
+            data = json.dumps(entries).encode()
+            encrypted_data = self.encryption_manager.encrypt_data(data)
+            encoded_data = base64.b64encode(encrypted_data).decode()
+            
+            # Delete existing entry if any
+            self.client.table('encrypted_files')\
+                .delete()\
+                .eq('user_id', self._current_user.id)\
+                .eq('file_id', 'login_entries')\
+                .execute()
+            
+            # Insert new entry
+            self.client.table('encrypted_files').insert({
+                'user_id': self._current_user.id,
+                'file_id': 'login_entries',
+                'encrypted_data': encoded_data,
+                'size': len(encrypted_data)
+            }).execute()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error saving login entries: {str(e)}")
+            return False

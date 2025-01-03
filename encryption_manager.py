@@ -6,12 +6,36 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.backends import default_backend
 import base64
+import json
 
 class EncryptionManager:
-    def __init__(self):
-        """Initialize encryption manager with a new encryption key"""
-        self.key = Fernet.generate_key()
-        self.cipher_suite = Fernet(self.key)
+    def __init__(self, cloud_manager=None):
+        """Initialize encryption manager"""
+        self.cloud_manager = cloud_manager
+        self._key = None
+        
+    @property
+    def key(self):
+        """Get or create encryption key"""
+        if self._key is None:
+            # Try to get key from cloud
+            if self.cloud_manager:
+                key_data = self.cloud_manager.get_encryption_key()
+                if key_data:
+                    self._key = key_data
+                else:
+                    # Generate and store new key
+                    self._key = Fernet.generate_key()
+                    self.cloud_manager.store_encryption_key(self._key)
+            else:
+                # No cloud manager, just generate a key
+                self._key = Fernet.generate_key()
+        return self._key
+        
+    @property
+    def cipher_suite(self):
+        """Get cipher suite using current key"""
+        return Fernet(self.key)
 
     def compress_folder(self, folder_path: str, output_path: str = None) -> bytes:
         """Compress a folder into a tar.gz archive in memory"""
