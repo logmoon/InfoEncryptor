@@ -1,4 +1,4 @@
-from gui_manager import GUIManager
+from gui_manager import main
 
 if __name__ == "__main__":
-    GUIManager()
+    main()
